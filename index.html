@@ -1,0 +1,563 @@
+<!doctype html>
+<html lang="id">
+
+<head>
+
+  <meta charset="utf-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width,initial-scale=1,viewport-fit=cover"
+  >
+
+  <meta
+    name="theme-color"
+    content="#111111"
+  >
+
+  <title>D'CORN PRESENSI — Kamera</title>
+
+  <style>
+
+    :root {
+      --bg: #101010;
+      --panel: #202020;
+      --text: #fff;
+      --muted: #aaa;
+      --yellow: #f2c52b;
+      --red: #d62828;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .wrap {
+      width: min(100%, 480px);
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid #3a3a3a;
+      border-radius: 20px;
+      padding: 20px;
+      box-shadow: 0 12px 40px #0008;
+    }
+
+    .brand {
+      color: var(--yellow);
+      font-weight: 900;
+      letter-spacing: 2px;
+      font-size: 18px;
+    }
+
+    .sub {
+      color: var(--muted);
+      font-size: 12px;
+      margin: 6px 0 18px;
+    }
+
+    .stage {
+      background: #090909;
+      border-radius: 15px;
+      overflow: hidden;
+      aspect-ratio: 3/4;
+      display: grid;
+      place-items: center;
+      border: 1px solid #444;
+    }
+
+    .stage video,
+    .stage canvas {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .stage canvas {
+      display: none;
+    }
+
+    .message {
+      font-size: 13px;
+      line-height: 1.5;
+      color: #ddd;
+      margin: 14px 0;
+    }
+
+    .btn {
+      width: 100%;
+      min-height: 48px;
+      border: 0;
+      border-radius: 12px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      margin-top: 10px;
+    }
+
+    .primary {
+      background: var(--yellow);
+      color: #111;
+    }
+
+    .secondary {
+      background: #333;
+      color: #fff;
+      border: 1px solid #555;
+    }
+
+    .btn:disabled {
+      opacity: .4;
+    }
+
+    .small {
+      font-size: 11px;
+      color: #999;
+      line-height: 1.5;
+      margin-top: 14px;
+    }
+
+  </style>
+
+</head>
+
+<body>
+
+  <main class="wrap">
+
+    <section class="card">
+
+      <div class="brand">
+        D'CORN PRESENSI
+      </div>
+
+      <div
+        class="sub"
+        id="actionLabel"
+      >
+        DOKUMENTASI FOTO PRESENSI
+      </div>
+
+
+      <div class="stage">
+
+        <video
+          id="video"
+          autoplay
+          muted
+          playsinline
+        ></video>
+
+        <canvas id="canvas"></canvas>
+
+        <div id="placeholder">
+          Kamera belum diaktifkan
+        </div>
+
+      </div>
+
+
+      <p
+        class="message"
+        id="message"
+      >
+        Aktifkan kamera depan HP, posisikan wajah di tengah, lalu ambil foto.
+      </p>
+
+
+      <button
+        id="startButton"
+        class="btn primary"
+      >
+        AKTIFKAN KAMERA
+      </button>
+
+
+      <button
+        id="captureButton"
+        class="btn primary"
+        disabled
+      >
+        AMBIL SELFIE & KIRIM
+      </button>
+
+
+      <button
+        id="retryButton"
+        class="btn secondary"
+        hidden
+      >
+        ULANGI FOTO
+      </button>
+
+
+      <p class="small">
+        Foto akan dikirim langsung ke database administrasi D'CORN.
+        Gunakan HP dan izinkan akses kamera pada browser.
+      </p>
+
+    </section>
+
+  </main>
+
+
+  <script>
+
+    (function () {
+
+      'use strict';
+
+      const params = new URLSearchParams(
+        location.search
+      );
+
+      const ticket = params.get('ticket') || '';
+
+      const action = (
+        params.get('action') || ''
+      ).toUpperCase();
+
+      const postUrl = params.get('postUrl') || '';
+
+      const video = document.getElementById('video');
+
+      const canvas = document.getElementById('canvas');
+
+      const placeholder = document.getElementById('placeholder');
+
+      const startButton = document.getElementById('startButton');
+
+      const captureButton = document.getElementById('captureButton');
+
+      const retryButton = document.getElementById('retryButton');
+
+      const message = document.getElementById('message');
+
+      let stream = null;
+
+
+      document.getElementById('actionLabel').textContent =
+        action === 'CLOCK_IN'
+          ? 'SELFIE CLOCK IN'
+          : action === 'CLOCK_OUT'
+            ? 'SELFIE CLOCK OUT'
+            : 'PRESENSI';
+
+
+      /* VALIDASI LINK */
+
+      if (
+        !ticket ||
+        !postUrl ||
+        !/^https:\/\//i.test(postUrl) ||
+        ['CLOCK_IN', 'CLOCK_OUT'].indexOf(action) === -1
+      ) {
+
+        startButton.disabled = true;
+
+        message.textContent =
+          'Tautan kamera tidak valid. Kembali ke aplikasi D\'CORN PRESENSI dan ulangi proses.';
+
+        return;
+      }
+
+
+      /* VALIDASI PERANGKAT MOBILE */
+
+      if (
+        !/Android|iPhone|iPad|iPod|Mobile/i.test(
+          navigator.userAgent
+        )
+      ) {
+
+        startButton.disabled = true;
+
+        message.textContent =
+          'Presensi selfie baseline ini hanya mendukung browser pada HP. Buka tautan menggunakan HP.';
+
+        return;
+      }
+
+
+      /* AKTIFKAN KAMERA */
+
+      async function startCamera() {
+
+        try {
+
+          if (
+            !navigator.mediaDevices ||
+            !navigator.mediaDevices.getUserMedia
+          ) {
+
+            throw new Error(
+              'Browser tidak mendukung akses kamera. Gunakan Chrome atau Safari versi terbaru melalui HTTPS.'
+            );
+
+          }
+
+          stream = await navigator.mediaDevices.getUserMedia({
+
+            audio: false,
+
+            video: {
+
+              facingMode: {
+                ideal: 'user'
+              },
+
+              width: {
+                ideal: 1280
+              },
+
+              height: {
+                ideal: 1280
+              }
+
+            }
+
+          });
+
+          video.srcObject = stream;
+
+          await video.play();
+
+          placeholder.style.display = 'none';
+
+          video.style.display = 'block';
+
+          canvas.style.display = 'none';
+
+          captureButton.disabled = false;
+
+          retryButton.hidden = true;
+
+          message.textContent =
+            'Kamera aktif. Pastikan wajah terlihat jelas sebelum mengambil selfie.';
+
+        } catch (error) {
+
+          message.textContent =
+            'Kamera tidak dapat dibuka: ' +
+            error.message +
+            ' Pastikan izin kamera diberikan.';
+
+        }
+
+      }
+
+
+      /* MATIKAN KAMERA */
+
+      function stopCamera() {
+
+        if (stream) {
+
+          stream.getTracks().forEach(function (track) {
+
+            track.stop();
+
+          });
+
+          stream = null;
+
+        }
+
+      }
+
+
+      /* BUTTON CAMERA */
+
+      startButton.addEventListener(
+        'click',
+        startCamera
+      );
+
+
+      /* ULANGI FOTO */
+
+      retryButton.addEventListener(
+        'click',
+        function () {
+
+          canvas.style.display = 'none';
+
+          video.style.display = 'block';
+
+          retryButton.hidden = true;
+
+          captureButton.disabled = false;
+
+        }
+      );
+
+
+      /* AMBIL SELFIE */
+
+      captureButton.addEventListener(
+        'click',
+        function () {
+
+          if (!stream || !video.videoWidth) {
+
+            message.textContent =
+              'Kamera belum siap. Aktifkan kamera kembali.';
+
+            return;
+          }
+
+
+          const maxWidth = 960;
+
+          const scale = Math.min(
+            1,
+            maxWidth / video.videoWidth
+          );
+
+          canvas.width = Math.round(
+            video.videoWidth * scale
+          );
+
+          canvas.height = Math.round(
+            video.videoHeight * scale
+          );
+
+
+          const ctx = canvas.getContext('2d');
+
+          ctx.drawImage(
+            video,
+            0,
+            0,
+            canvas.width,
+            canvas.height
+          );
+
+
+          let dataUrl = canvas.toDataURL(
+            'image/jpeg',
+            0.68
+          );
+
+
+          if (dataUrl.length > 1900000) {
+
+            const smaller = document.createElement('canvas');
+
+            smaller.width = Math.round(
+              canvas.width * 0.75
+            );
+
+            smaller.height = Math.round(
+              canvas.height * 0.75
+            );
+
+            smaller.getContext('2d').drawImage(
+              canvas,
+              0,
+              0,
+              smaller.width,
+              smaller.height
+            );
+
+            dataUrl = smaller.toDataURL(
+              'image/jpeg',
+              0.62
+            );
+
+          }
+
+
+          if (dataUrl.length > 2000000) {
+
+            message.textContent =
+              'Ukuran foto terlalu besar. Ulangi dengan pencahayaan cukup dan posisi kamera lebih dekat.';
+
+            return;
+          }
+
+
+          video.style.display = 'none';
+
+          canvas.style.display = 'block';
+
+          captureButton.disabled = true;
+
+          retryButton.hidden = false;
+
+          message.textContent =
+            'Foto siap dikirim. Mengirim ke sistem D\'CORN...';
+
+
+          const payload = {
+
+            ticket: ticket,
+
+            action: action,
+
+            selfieDataUrl: dataUrl,
+
+            deviceInfo: navigator.userAgent
+
+          };
+
+
+          const form = document.createElement('form');
+
+          form.method = 'POST';
+
+          form.action = postUrl;
+
+          form.target = '_self';
+
+          form.style.display = 'none';
+
+
+          const input = document.createElement('input');
+
+          input.type = 'hidden';
+
+          input.name = 'dcorn_payload';
+
+          input.value = JSON.stringify(payload);
+
+
+          form.appendChild(input);
+
+          document.body.appendChild(form);
+
+
+          stopCamera();
+
+          form.submit();
+
+        }
+      );
+
+
+      /* BERSIHKAN RESOURCE KAMERA */
+
+      window.addEventListener(
+        'pagehide',
+        stopCamera
+      );
+
+    })();
+
+  </script>
+
+</body>
+
+</html>
