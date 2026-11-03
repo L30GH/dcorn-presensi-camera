@@ -23,9 +23,9 @@
       </div>
       <p class="message" id="message">Aktifkan kamera depan HP, posisikan wajah di tengah, lalu ambil foto.</p>
       <button id="startButton" class="btn primary" type="button">AKTIFKAN KAMERA</button>
-      <button id="captureButton" class="btn primary" type="button" disabled>AMBIL SELFIE &amp; KIRIM</button>
+      <button id="captureButton" class="btn primary" type="button" disabled>AMBIL SELFIE &amp; SIMPAN PRESENSI</button>
       <button id="retryButton" class="btn secondary" type="button" hidden>ULANGI FOTO</button>
-      <p class="small">Foto dikirim ke sistem administrasi D'CORN. Izinkan akses kamera pada browser.</p>
+      <p class="small">Foto disimpan sebagai bukti presensi pada sistem D'CORN dan tidak dikirim ke WhatsApp. Izinkan akses kamera pada browser.</p>
     </section>
   </main>
   <script>
@@ -163,7 +163,7 @@
           const dataUrl=buildPhoto();
           video.style.display='none';
           canvas.style.display='block';
-          message.textContent='Foto siap dikirim. Menyimpan presensi...';
+          message.textContent='Foto siap disimpan. Menyimpan presensi...';
           submitPhoto(dataUrl);
         }catch(error){
           submitting=false;
