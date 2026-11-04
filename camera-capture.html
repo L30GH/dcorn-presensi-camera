@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#101820">
+  <title>D'CORN PRESENSI — Live Selfie</title>
+  <style>
+    :root{--bg:#101820;--panel:#192735;--text:#f4f7fa;--muted:#aebdca;--gold:#f2c52b;--green:#20df83;--red:#ff6b6b}
+    *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:Arial,sans-serif}
+    body{min-height:100dvh;display:flex;justify-content:center;align-items:center;padding:14px;padding-top:max(14px,env(safe-area-inset-top));padding-bottom:max(14px,env(safe-area-inset-bottom))}
+    .wrap{width:min(100%,500px)}.card{background:var(--panel);border:1px solid #344858;border-radius:20px;padding:16px;box-shadow:0 16px 46px #0008}
+    .brand{color:var(--gold);font-size:17px;font-weight:900;letter-spacing:2px}.subtitle{color:var(--muted);font-size:12px;margin:5px 0 14px}
+    .stage{position:relative;width:100%;aspect-ratio:3/4;max-height:min(66dvh,720px);margin:0 auto;background:#05090d;border:1px solid #405262;border-radius:16px;overflow:hidden;isolation:isolate}
+    #cameraVideo,#photoCanvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}#cameraVideo{transform:scaleX(-1)}#photoCanvas{display:none;background:#000}
+    .guide-mask{position:absolute;inset:0;pointer-events:none;z-index:2;background:rgba(0,0,0,.27)}
+    .oval-frame{position:absolute;left:17%;top:10%;width:66%;height:78%;border:3px solid var(--green);border-radius:50% / 47%;box-shadow:0 0 0 999px rgba(0,0,0,.18),0 0 18px rgba(32,223,131,.24);background:transparent}
+    .oval-frame:before,.oval-frame:after{content:"";position:absolute;width:24px;height:24px;border-color:#fff;border-style:solid;opacity:.95}
+    .oval-frame:before{left:-4px;top:18%;border-width:3px 0 0 3px;border-radius:7px 0 0 0}.oval-frame:after{right:-4px;bottom:18%;border-width:0 3px 3px 0;border-radius:0 0 7px 0}
+    .guide-label{position:absolute;z-index:3;left:50%;bottom:12px;transform:translateX(-50%);width:max-content;max-width:92%;padding:8px 12px;border-radius:30px;background:rgba(4,15,24,.82);color:#fff;font-size:11px;font-weight:800;text-align:center;letter-spacing:.25px}
+    .camera-state{min-height:42px;color:var(--muted);font-size:13px;line-height:1.45;margin:12px 2px 6px}
+    .btn{display:block;width:100%;min-height:50px;border:0;border-radius:11px;margin-top:9px;padding:12px;font-size:14px;font-weight:900;letter-spacing:.3px}
+    .primary{background:var(--gold);color:#161616}.success{background:#198754;color:#fff}.secondary{background:#2e4050;color:#fff;border:1px solid #526779}.danger{background:#354451;color:#fff}.btn:disabled{opacity:.45}
+    .row{display:flex;gap:9px}.row .btn{flex:1}.hint{color:#91a0ac;font-size:10px;line-height:1.5;margin:12px 2px 0}
+    .hidden{display:none!important}.status-pill{display:inline-block;padding:6px 10px;border-radius:20px;background:#173d30;color:#7ff0b5;font-size:10px;font-weight:800;margin:0 0 10px}
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="card">
+      <div class="brand">D'CORN PRESENSI</div>
+      <div class="subtitle" id="actionLabel">LIVE SELFIE CAMERA</div>
+      <div class="status-pill" id="cameraStatus">MENYIAPKAN KAMERA DEPAN</div>
+      <div class="stage" id="cameraStage">
+        <video id="cameraVideo" autoplay muted playsinline></video>
+        <canvas id="photoCanvas"></canvas>
+        <div class="guide-mask" id="guideMask"><div class="oval-frame"></div></div>
+        <div class="guide-label" id="guideLabel">POSISIKAN WAJAH DI DALAM OVAL</div>
+      </div>
+      <p class="camera-state" id="message" aria-live="polite">Meminta akses kamera depan HP...</p>
+      <button id="captureButton" class="btn primary" type="button" disabled>AMBIL SELFIE</button>
+      <div class="row hidden" id="reviewButtons">
+        <button id="retakeButton" class="btn secondary" type="button">AMBIL ULANG</button>
+        <button id="submitButton" class="btn success" type="button">KIRIM PRESENSI</button>
+      </div>
+      <button id="startButton" class="btn primary hidden" type="button">COBA BUKA KAMERA</button>
+      <button id="cancelButton" class="btn danger" type="button">BATAL / KEMBALI KE D'CORN</button>
+      <p class="hint">Gunakan kamera depan HP. Posisikan seluruh wajah di dalam oval, dengan pencahayaan cukup dan jarak nyaman. Frame adalah panduan posisi, bukan verifikasi identitas biometrik.</p>
+    </section>
+  </main>
+<script>
+(function(){
+  'use strict';
+  const params=new URLSearchParams(window.location.search);
+  const ticket=params.get('ticket')||'';
+  const action=(params.get('action')||'').toUpperCase();
+  const postUrl=params.get('postUrl')||'';
+  const returnUrl=params.get('returnUrl')||postUrl;
+  const allowedActions=['CLOCK_IN','CLOCK_OUT'];
+  const video=document.getElementById('cameraVideo');
+  const canvas=document.getElementById('photoCanvas');
+  const message=document.getElementById('message');
+  const cameraStatus=document.getElementById('cameraStatus');
+  const captureButton=document.getElementById('captureButton');
+  const startButton=document.getElementById('startButton');
+  const reviewButtons=document.getElementById('reviewButtons');
+  const retakeButton=document.getElementById('retakeButton');
+  const submitButton=document.getElementById('submitButton');
+  const guideMask=document.getElementById('guideMask');
+  const guideLabel=document.getElementById('guideLabel');
+  let stream=null,photoDataUrl='',submitting=false,streamStarting=false;
+
+  document.getElementById('actionLabel').textContent=action==='CLOCK_IN'?'SELFIE CLOCK IN':action==='CLOCK_OUT'?'SELFIE CLOCK OUT':'SELFIE PRESENSI';
+  function setMessage(text,isError){message.textContent=text||'';message.style.color=isError?'#ff9a9a':'#aebdca';}
+  function setCameraStatus(text,ok){cameraStatus.textContent=text;cameraStatus.style.background=ok?'#173d30':'#44351b';cameraStatus.style.color=ok?'#7ff0b5':'#ffd77a';}
+  function validHttpsUrl(value){try{const u=new URL(value);return u.protocol==='https:';}catch(e){return false;}}
+  function validReturnUrl(value){try{const u=new URL(value);return u.protocol==='https:' && (u.hostname==='script.google.com'||u.hostname.endsWith('.googleusercontent.com'));}catch(e){return false;}}
+  function returnToApp(status){
+    stopCamera();
+    if(!validReturnUrl(returnUrl)){setMessage('URL kembali ke aplikasi tidak valid. Buka kembali D\'CORN PRESENSI dari tab sebelumnya.',true);return;}
+    const sep=returnUrl.indexOf('?')===-1?'?':'&';
+    window.location.replace(returnUrl+sep+'dcornCameraReturn='+encodeURIComponent(status)+'&action='+encodeURIComponent(action));
+  }
+  function stopCamera(){if(stream){stream.getTracks().forEach(function(t){try{t.stop();}catch(e){}});stream=null;}video.srcObject=null;}
+
+  if(!ticket||!validHttpsUrl(postUrl)||!validReturnUrl(returnUrl)||allowedActions.indexOf(action)===-1){
+    captureButton.disabled=true;startButton.classList.remove('hidden');startButton.disabled=true;setCameraStatus('LINK TIDAK VALID',false);setMessage('Tiket kamera tidak valid atau kedaluwarsa. Kembali ke aplikasi dan tekan Clock In/Clock Out lagi.',true);return;
+  }
+  if(!window.isSecureContext||!navigator.mediaDevices||typeof navigator.mediaDevices.getUserMedia!=='function'){
+    captureButton.disabled=true;startButton.classList.remove('hidden');setCameraStatus('KAMERA TIDAK DIDUKUNG',false);setMessage('Browser tidak mendukung kamera langsung. Gunakan Chrome terbaru dan pastikan halaman memakai HTTPS.',true);return;
+  }
+
+  async function startCamera(){
+    if(streamStarting||stream)return;
+    streamStarting=true;startButton.classList.add('hidden');captureButton.disabled=true;setCameraStatus('MEMINTA IZIN KAMERA',false);setMessage('Meminta akses ke kamera depan HP...');
+    try{
+      stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'user'},width:{ideal:1280},height:{ideal:960}}});
+      video.srcObject=stream;await video.play();
+      if(!video.videoWidth||!video.videoHeight)throw new Error('Kamera belum mengirim gambar. Coba buka ulang kamera.');
+      guideMask.classList.remove('hidden');guideLabel.classList.remove('hidden');canvas.style.display='none';video.style.display='block';
+      captureButton.disabled=false;setCameraStatus('KAMERA DEPAN AKTIF',true);setMessage('Atur posisi wajah: dahi, dagu, dan kedua sisi wajah berada di dalam oval.');
+    }catch(error){
+      stopCamera();startButton.classList.remove('hidden');setCameraStatus('AKSES KAMERA GAGAL',false);
+      const n=error&&error.name?error.name:'';
+      let advice='Periksa izin kamera browser dan izin kamera Android.';
+      if(n==='NotAllowedError'||n==='PermissionDeniedError')advice='Izin kamera ditolak. Izinkan kamera untuk situs halaman kamera HTTPS, lalu tekan COBA BUKA KAMERA.';
+      else if(n==='NotFoundError'||n==='DevicesNotFoundError')advice='Kamera depan tidak ditemukan pada perangkat ini.';
+      else if(n==='NotReadableError'||n==='TrackStartError')advice='Kamera sedang digunakan aplikasi lain. Tutup aplikasi kamera lain lalu coba lagi.';
+      setMessage(advice+' ('+(n||'CameraError')+')',true);
+    }finally{streamStarting=false;}
+  }
+
+  function makeSnapshot(){
+    const vw=video.videoWidth,vh=video.videoHeight;
+    if(!vw||!vh)throw new Error('Frame kamera belum siap. Tunggu sebentar lalu coba lagi.');
+    const targetW=720,targetH=960,targetRatio=targetW/targetH,sourceRatio=vw/vh;
+    let sx=0,sy=0,sw=vw,sh=vh;
+    if(sourceRatio>targetRatio){sw=vh*targetRatio;sx=(vw-sw)/2;}else{sh=vw/targetRatio;sy=(vh-sh)/2;}
+    canvas.width=targetW;canvas.height=targetH;
+    const ctx=canvas.getContext('2d',{alpha:false});if(!ctx)throw new Error('Browser tidak dapat menyiapkan foto.');
+    // Preview kamera depan dicerminkan; hasil foto juga dicerminkan agar konsisten dengan panduan oval.
+    ctx.save();ctx.translate(targetW,0);ctx.scale(-1,1);ctx.drawImage(video,sx,sy,sw,sh,0,0,targetW,targetH);ctx.restore();
+    let quality=.76;let url=canvas.toDataURL('image/jpeg',quality);
+    while(url.length>1750000&&quality>.56){quality-=.08;url=canvas.toDataURL('image/jpeg',quality);}
+    if(url.length>1900000)throw new Error('Ukuran foto terlalu besar. Ambil ulang dengan jarak wajah sedikit lebih dekat.');
+    return url;
+  }
+
+  function showReview(){video.style.display='none';canvas.style.display='block';guideMask.classList.add('hidden');guideLabel.classList.add('hidden');captureButton.classList.add('hidden');reviewButtons.classList.remove('hidden');setCameraStatus('FOTO SIAP DIPERIKSA',true);setMessage('Periksa foto. Jika seluruh wajah terlihat jelas, tekan KIRIM PRESENSI.');}
+  function submitPhoto(){
+    if(submitting||!photoDataUrl)return;submitting=true;submitButton.disabled=true;retakeButton.disabled=true;document.getElementById('cancelButton').disabled=true;
+    setCameraStatus('MENGIRIM PRESENSI',false);setMessage('Mengirim foto dan menyimpan presensi. Jangan tutup halaman ini...');stopCamera();
+    const payload={ticket:ticket,action:action,selfieDataUrl:photoDataUrl,deviceInfo:String(navigator.userAgent||'Mobile browser').substring(0,180)};
+    const form=document.createElement('form');form.method='POST';form.action=postUrl;form.target='_self';form.style.display='none';
+    const input=document.createElement('input');input.type='hidden';input.name='dcorn_payload';input.value=JSON.stringify(payload);form.appendChild(input);document.body.appendChild(form);form.submit();
+  }
+
+  captureButton.addEventListener('click',function(){if(!stream||submitting)return;captureButton.disabled=true;setMessage('Menyiapkan foto...');try{photoDataUrl=makeSnapshot();showReview();}catch(e){captureButton.disabled=false;setMessage(e.message||'Foto gagal disiapkan.',true);}});
+  retakeButton.addEventListener('click',function(){if(submitting)return;photoDataUrl='';reviewButtons.classList.add('hidden');video.style.display='block';canvas.style.display='none';guideMask.classList.remove('hidden');guideLabel.classList.remove('hidden');captureButton.classList.remove('hidden');captureButton.disabled=false;setCameraStatus('KAMERA DEPAN AKTIF',true);setMessage('Atur ulang wajah di dalam oval, lalu ambil foto kembali.');});
+  submitButton.addEventListener('click',submitPhoto);
+  startButton.addEventListener('click',startCamera);
+  document.getElementById('cancelButton').addEventListener('click',function(){if(submitting)return;returnToApp('cancel');});
+  window.addEventListener('pagehide',stopCamera);
+  // Auto-start: halaman dibuka sebagai top-level HTTPS setelah user menekan tombol Clock In/Out.
+  // Jika browser menolak auto-start, tombol fallback akan muncul tanpa mengunci aplikasi.
+  startCamera();
+})();
+</script>
+</body>
+</html>
