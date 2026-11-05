@@ -77,6 +77,8 @@
   function setCameraStatus(text,ok){cameraStatus.textContent=text;cameraStatus.style.background=ok?'#173d30':'#44351b';cameraStatus.style.color=ok?'#7ff0b5':'#ffd77a';}
   function validHttpsUrl(value){try{const u=new URL(value);return u.protocol==='https:';}catch(e){return false;}}
   function validReturnUrl(value){try{const u=new URL(value);return u.protocol==='https:' && (u.hostname==='script.google.com'||u.hostname.endsWith('.googleusercontent.com'));}catch(e){return false;}}
+  // REV5 FIX1: validasi origin Dashboard sebelum menerima INIT berisi tiket.
+  function validDashboardOrigin(value){try{const u=new URL(value);return u.protocol==='https:' && (u.hostname==='script.google.com'||u.hostname.endsWith('.googleusercontent.com'));}catch(e){return false;}}
   function postToDashboard(message){
     if(!deferredFlow||!parentReady||!window.opener||!parentOrigin)return false;
     try{window.opener.postMessage(message,parentOrigin);return true;}catch(e){return false;}
