@@ -29,7 +29,7 @@
   <main class="wrap">
     <section class="card">
       <div class="brand">D'CORN PRESENSI</div>
-      <div class="subtitle" id="actionLabel">LIVE SELFIE CAMERA</div>
+      <div class="subtitle" id="actionLabel">CAMERA RETURN & DEFERRED COMMIT REV5</div>
       <div class="status-pill" id="cameraStatus">MENYIAPKAN KAMERA DEPAN</div>
       <div class="stage" id="cameraStage">
         <video id="cameraVideo" autoplay muted playsinline></video>
@@ -52,11 +52,13 @@
 (function(){
   'use strict';
   const params=new URLSearchParams(window.location.search);
-  const ticket=params.get('ticket')||'';
-  const action=(params.get('action')||'').toUpperCase();
+  const deferredFlow=params.get('flow')==='deferred';
+  let ticket=params.get('ticket')||'';
+  let action=(params.get('action')||'').toUpperCase();
   const postUrl=params.get('postUrl')||'';
   const returnUrl=params.get('returnUrl')||postUrl;
   const allowedActions=['CLOCK_IN','CLOCK_OUT'];
+  let parentOrigin='',parentNonce='',parentReady=false;
   const video=document.getElementById('cameraVideo');
   const canvas=document.getElementById('photoCanvas');
   const message=document.getElementById('message');
@@ -75,19 +77,43 @@
   function setCameraStatus(text,ok){cameraStatus.textContent=text;cameraStatus.style.background=ok?'#173d30':'#44351b';cameraStatus.style.color=ok?'#7ff0b5':'#ffd77a';}
   function validHttpsUrl(value){try{const u=new URL(value);return u.protocol==='https:';}catch(e){return false;}}
   function validReturnUrl(value){try{const u=new URL(value);return u.protocol==='https:' && (u.hostname==='script.google.com'||u.hostname.endsWith('.googleusercontent.com'));}catch(e){return false;}}
+  function postToDashboard(message){
+    if(!deferredFlow||!parentReady||!window.opener||!parentOrigin)return false;
+    try{window.opener.postMessage(message,parentOrigin);return true;}catch(e){return false;}
+  }
   function returnToApp(status){
     stopCamera();
+    if(deferredFlow){
+      if(parentReady){postToDashboard({type:'DCORN_CAMERA_CANCELLED',nonce:parentNonce,ticket:ticket,action:action});}
+      try{window.close();}catch(e){}
+      return;
+    }
     if(!validReturnUrl(returnUrl)){setMessage('URL kembali ke aplikasi tidak valid. Buka kembali D\'CORN PRESENSI dari tab sebelumnya.',true);return;}
     const sep=returnUrl.indexOf('?')===-1?'?':'&';
     window.location.replace(returnUrl+sep+'dcornCameraReturn='+encodeURIComponent(status)+'&action='+encodeURIComponent(action));
   }
+  function notifyDashboardStatus(text,isError){
+    if(deferredFlow&&parentReady){postToDashboard({type:'DCORN_CAMERA_STATUS',nonce:parentNonce,message:String(text||''),error:Boolean(isError)});}
+  }
   function stopCamera(){if(stream){stream.getTracks().forEach(function(t){try{t.stop();}catch(e){}});stream=null;}video.srcObject=null;}
 
-  if(!ticket||!validHttpsUrl(postUrl)||!validReturnUrl(returnUrl)||allowedActions.indexOf(action)===-1){
-    captureButton.disabled=true;startButton.classList.remove('hidden');startButton.disabled=true;setCameraStatus('LINK TIDAK VALID',false);setMessage('Tiket kamera tidak valid atau kedaluwarsa. Kembali ke aplikasi dan tekan Clock In/Clock Out lagi.',true);return;
-  }
   if(!window.isSecureContext||!navigator.mediaDevices||typeof navigator.mediaDevices.getUserMedia!=='function'){
     captureButton.disabled=true;startButton.classList.remove('hidden');setCameraStatus('KAMERA TIDAK DIDUKUNG',false);setMessage('Browser tidak mendukung kamera langsung. Gunakan Chrome terbaru dan pastikan halaman memakai HTTPS.',true);return;
+  }
+
+  if(!deferredFlow && (!ticket||!validHttpsUrl(postUrl)||!validReturnUrl(returnUrl)||allowedActions.indexOf(action)===-1)){
+    captureButton.disabled=true;startButton.classList.remove('hidden');startButton.disabled=true;setCameraStatus('LINK TIDAK VALID',false);setMessage('Tiket kamera tidak valid atau kedaluwarsa. Kembali ke aplikasi dan tekan Clock In/Clock Out lagi.',true);return;
+  }
+  if(deferredFlow){
+    captureButton.disabled=true;
+    setCameraStatus('MENGHUBUNGKAN DASHBOARD',false);
+    setMessage('Menghubungkan kamera dengan Dashboard D\'CORN...');
+    if(!window.opener){
+      startButton.classList.remove('hidden');startButton.disabled=true;
+      setCameraStatus('DASHBOARD TIDAK TERHUBUNG',false);
+      setMessage('Halaman ini harus dibuka dari tombol Clock In/Clock Out pada Dashboard. Tutup tab ini dan ulangi dari aplikasi.',true);
+      return;
+    }
   }
 
   async function startCamera(){
@@ -107,6 +133,7 @@
       else if(n==='NotFoundError'||n==='DevicesNotFoundError')advice='Kamera depan tidak ditemukan pada perangkat ini.';
       else if(n==='NotReadableError'||n==='TrackStartError')advice='Kamera sedang digunakan aplikasi lain. Tutup aplikasi kamera lain lalu coba lagi.';
       setMessage(advice+' ('+(n||'CameraError')+')',true);
+      notifyDashboardStatus(advice+' ('+(n||'CameraError')+')',true);
     }finally{streamStarting=false;}
   }
 
@@ -128,11 +155,52 @@
 
   function showReview(){video.style.display='none';canvas.style.display='block';guideMask.classList.add('hidden');guideLabel.classList.add('hidden');captureButton.classList.add('hidden');reviewButtons.classList.remove('hidden');setCameraStatus('FOTO SIAP DIPERIKSA',true);setMessage('Periksa foto. Jika seluruh wajah terlihat jelas, tekan KIRIM PRESENSI.');}
   function submitPhoto(){
-    if(submitting||!photoDataUrl)return;submitting=true;submitButton.disabled=true;retakeButton.disabled=true;document.getElementById('cancelButton').disabled=true;
+    if(submitting||!photoDataUrl)return;
+    if(deferredFlow){
+      if(!parentReady||!ticket||!parentNonce||!window.opener){setMessage('Dashboard belum siap menerima foto. Tunggu koneksi lalu coba kembali.',true);return;}
+      submitting=true;submitButton.disabled=true;retakeButton.disabled=true;document.getElementById('cancelButton').disabled=true;
+      setCameraStatus('MENGIRIM FOTO KE DASHBOARD',false);setMessage('Foto dikirim ke Dashboard. Penyimpanan presensi baru dimulai setelah kembali ke Dashboard.');stopCamera();
+      const sent=postToDashboard({type:'DCORN_CAMERA_CAPTURE',nonce:parentNonce,ticket:ticket,action:action,selfieDataUrl:photoDataUrl,deviceInfo:String(navigator.userAgent||'Mobile browser').substring(0,180)});
+      if(!sent){submitting=false;submitButton.disabled=false;retakeButton.disabled=false;document.getElementById('cancelButton').disabled=false;setCameraStatus('TRANSFER GAGAL',false);setMessage('Foto belum dapat dikirim ke Dashboard. Pastikan Dashboard masih terbuka, lalu coba kembali.',true);return;}
+      setCameraStatus('MENUNGGU DASHBOARD',false);setMessage('Foto sudah dikirim. Menunggu konfirmasi Dashboard dan akan kembali otomatis...');
+      return;
+    }
+    submitting=true;submitButton.disabled=true;retakeButton.disabled=true;document.getElementById('cancelButton').disabled=true;
     setCameraStatus('MENGIRIM PRESENSI',false);setMessage('Mengirim foto dan menyimpan presensi. Jangan tutup halaman ini...');stopCamera();
     const payload={ticket:ticket,action:action,selfieDataUrl:photoDataUrl,deviceInfo:String(navigator.userAgent||'Mobile browser').substring(0,180)};
     const form=document.createElement('form');form.method='POST';form.action=postUrl;form.target='_self';form.style.display='none';
     const input=document.createElement('input');input.type='hidden';input.name='dcorn_payload';input.value=JSON.stringify(payload);form.appendChild(input);document.body.appendChild(form);form.submit();
+  }
+
+  if(deferredFlow){
+    window.addEventListener('message',function(event){
+      if(event.source!==window.opener)return;
+      const data=event.data||{};
+      if(!data||typeof data!=='object')return;
+      if(data.type==='DCORN_CAMERA_INIT'){
+        if(parentReady||!validDashboardOrigin(event.origin))return;
+        const incomingTicket=String(data.ticket||'');
+        const incomingAction=String(data.action||'').toUpperCase();
+        const incomingNonce=String(data.nonce||'');
+        if(!/^[-A-Za-z0-9_]{20,120}$/.test(incomingTicket)||allowedActions.indexOf(incomingAction)===-1||!/^[a-f0-9]{48,128}$/i.test(incomingNonce)){
+          setCameraStatus('HANDSHAKE TIDAK VALID',false);setMessage('Koneksi keamanan dengan Dashboard tidak valid. Tutup jendela dan ulangi dari aplikasi.',true);return;
+        }
+        ticket=incomingTicket;action=incomingAction;parentNonce=incomingNonce;parentOrigin=event.origin;parentReady=true;
+        document.getElementById('actionLabel').textContent=action==='CLOCK_IN'?'SELFIE CLOCK IN':'SELFIE CLOCK OUT';
+        setCameraStatus('DASHBOARD TERHUBUNG',true);setMessage('Dashboard terhubung. Kamera depan akan dibuka otomatis...');
+        notifyDashboardStatus('Halaman kamera terhubung dan kamera depan sedang dibuka.',false);
+        startCamera();
+        return;
+      }
+      if(data.type==='DCORN_CAMERA_ACK'&&parentReady&&event.origin===parentOrigin&&data.nonce===parentNonce){
+        setCameraStatus('FOTO DITERIMA DASHBOARD',true);setMessage('Foto berhasil diterima Dashboard. Menutup kamera...');stopCamera();
+        try{window.close();}catch(e){}
+      }
+    });
+    // Pesan READY tidak membawa tiket maupun foto. Dashboard harus memverifikasi
+    // event.origin dan event.source sebelum mengirim INIT yang berisi tiket.
+    try{window.opener.postMessage({type:'DCORN_CAMERA_READY',version:'REV5'},'*');}
+    catch(e){setCameraStatus('DASHBOARD TIDAK TERHUBUNG',false);setMessage('Gagal menghubungi Dashboard. Tutup halaman ini dan ulangi dari aplikasi.',true);}
   }
 
   captureButton.addEventListener('click',function(){if(!stream||submitting)return;captureButton.disabled=true;setMessage('Menyiapkan foto...');try{photoDataUrl=makeSnapshot();showReview();}catch(e){captureButton.disabled=false;setMessage(e.message||'Foto gagal disiapkan.',true);}});
@@ -141,9 +209,9 @@
   startButton.addEventListener('click',startCamera);
   document.getElementById('cancelButton').addEventListener('click',function(){if(submitting)return;returnToApp('cancel');});
   window.addEventListener('pagehide',stopCamera);
-  // Auto-start: halaman dibuka sebagai top-level HTTPS setelah user menekan tombol Clock In/Out.
-  // Jika browser menolak auto-start, tombol fallback akan muncul tanpa mengunci aplikasi.
-  startCamera();
+  // REV5 deferred mode waits for an origin/source-verified Dashboard INIT.
+  // Legacy mode retains the original auto-start behavior for rollback compatibility.
+  if(!deferredFlow)startCamera();
 })();
 </script>
 </body>
